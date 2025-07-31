@@ -9,12 +9,24 @@ import path from "path";
 import { parseExcel } from "../src/utils/excelParser";
 import { generateBackend } from "../src/utils/backendGenerator";
 import { generateFrontend } from "../src/utils/frontendGenerator";
+import mongoose from "mongoose";
 
 const app = express();
 const PORT = 5000;
 
 app.use(cors());
 app.use(express.json());
+
+//Routes automation
+const routesPath = path.join(__dirname, "./generated-backend/routes");
+if (fs.existsSync(routesPath)) {
+  fs.readdirSync(routesPath).forEach((file) => {
+    const router = require(path.join(routesPath, file)).default;
+    app.use(router);
+  });
+} else {
+  console.log("⚠️  No generated backend routes found. Skipping dynamic routing.");
+}
 
 // Setup multer for Excel uploads
 const upload = multer({ dest: "uploads/" });
@@ -55,6 +67,9 @@ app.post("/generate", upload.single("file"), async (req, res) => {
     return res.status(500).json({ message: "Code generation failed", error });
   }
 });
+
+// mongodb connection 
+mongoose.connect("mongodb://localhost:27017/admin_panel_generator").then(() => console.log("MongoDb Connected successfully")).catch((err) => console.log("Error connecting mongoDB"))
 
 app.listen(PORT, () => {
   console.log(`⚙️  Server running at http://localhost:${PORT}`);

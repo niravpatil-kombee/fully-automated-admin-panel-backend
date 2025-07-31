@@ -36,7 +36,8 @@ export async function generateBackend(entityName: string, fields: Field[]) {
       else if (field.type === "ObjectId" || field.reference)
         tsType = "mongoose.Schema.Types.ObjectId";
 
-      return `  ${field.fieldName}: { type: ${tsType}, required: ${!!field.required} }`;
+      const ref = field.reference ? `, ref: "${field.reference}"` : "";
+      return `  ${field.fieldName}: { type: ${tsType}, required: ${!!field.required}${ref} }`;
     });
 
     const modelContent = `
@@ -64,8 +65,6 @@ import { ${entityName} } from "../model/${lcEntity}.model";
 export async function create${entityName}(req: Request, res: Response) {
   try {
     const payload = { ...req.body };
-
-    // Handle file upload if image exists
     if (req.file) {
       payload.image = req.file.filename;
     }
@@ -156,13 +155,14 @@ import {
 } from "../controller/${lcEntity}.controller";
 
 const router = express.Router();
-const upload = multer({ dest: "uploads/" }); // basic multer config
+const upload = multer({ dest: "uploads/" });
 
-router.post("/", upload.single("image"), create${entityName});
-router.get("/", getAll${entityName}s);
-router.get("/:id", get${entityName}ById);
-router.put("/:id", upload.single("image"), update${entityName});
-router.delete("/:id", delete${entityName});
+// Define full API path here directly
+router.post("/api/${lcEntity}", upload.single("image"), create${entityName});
+router.get("/api/${lcEntity}", getAll${entityName}s);
+router.get("/api/${lcEntity}/:id", get${entityName}ById);
+router.put("/api/${lcEntity}/:id", upload.single("image"), update${entityName});
+router.delete("/api/${lcEntity}/:id", delete${entityName});
 
 export default router;
 `;
