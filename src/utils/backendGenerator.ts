@@ -57,6 +57,9 @@ export const ${entityName} = mongoose.model("${entityName}", ${lcEntity}Schema);
   // ------------------------
   const controllerPath = path.join(baseDir, "controller", `${lcEntity}.controller.ts`);
   if (!fs.existsSync(controllerPath)) {
+    const referenceFields = fields.filter((f) => f.reference).map((f) => f.fieldName);
+    const populateString = referenceFields.map((f) => `.populate("${f}")`).join("");
+
     const controllerContent = `
 import { Request, Response } from "express";
 import { ${entityName} } from "../model/${lcEntity}.model";
@@ -88,7 +91,7 @@ export async function getAll${entityName}s(req: Request, res: Response) {
       .join("\n    ")}
 
     const result = await ${entityName}
-      .find({ ...query, ...filters })
+      .find({ ...query, ...filters })${populateString}
       .skip((+page - 1) * +limit)
       .limit(+limit);
 
@@ -101,7 +104,7 @@ export async function getAll${entityName}s(req: Request, res: Response) {
 // Get by ID
 export async function get${entityName}ById(req: Request, res: Response) {
   try {
-    const data = await ${entityName}.findById(req.params.id);
+    const data = await ${entityName}.findById(req.params.id)${populateString};
     if (!data) return res.status(404).json({ message: "Not found" });
     res.json(data);
   } catch (err) {
