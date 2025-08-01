@@ -194,6 +194,7 @@
 //   console.log(`✅ Frontend for '${sheetName}' generated at: ${componentFolder}`);
 // }
 
+// Imports
 import fs from "fs";
 import path from "path";
 
@@ -217,7 +218,6 @@ function pascalCase(str: string) {
     .join("");
 }
 
-// Helper to get React state variable name for referenced data
 function getReferenceStateName(ref: string | undefined): string {
   if (!ref) return "";
   return ref.charAt(0).toLowerCase() + ref.slice(1) + "Options";
@@ -225,32 +225,42 @@ function getReferenceStateName(ref: string | undefined): string {
 
 export function generateFrontend(sheetName: string, fields: Field[]) {
   const modelName = pascalCase(sheetName);
-  const componentFolder = path.resolve(__dirname, "../../../frontend/src/generated-frontend", sheetName.toLowerCase());
+  const componentFolder = path.resolve(
+    __dirname,
+    "../../../frontend/src/generated-frontend",
+    sheetName.toLowerCase()
+  );
 
   if (!fs.existsSync(componentFolder)) fs.mkdirSync(componentFolder, { recursive: true });
   else return console.log(`⚠️ Skipped: ${sheetName} already exists.`);
 
-  const initialState = fields.map((f) => {
-    const name = f.fieldName;
-    if (f.type === "boolean") return `${name}: false`;
-    if (f.type === "image" || f.uiType === "file") return `${name}: null`;
-    return `${name}: ""`;
-  }).join(",\n    ");
+  const initialState = fields
+    .map((f) => {
+      const name = f.fieldName;
+      if (f.type === "boolean") return `${name}: false`;
+      if (f.type === "image" || f.uiType === "file") return `${name}: null`;
+      return `${name}: ""`;
+    })
+    .join(",\n    ");
 
   const referenceStatesInit = fields
-    .filter(f => f.reference)
-    .map(f => `const [${getReferenceStateName(f.reference)}, set${pascalCase(getReferenceStateName(f.reference))}] = React.useState<any[]>([]);`)
+    .filter((f) => f.reference)
+    .map(
+      (f) =>
+        `const [${getReferenceStateName(f.reference)}, set${pascalCase(
+          getReferenceStateName(f.reference)
+        )}] = React.useState<any[]>([]);`
+    )
     .join("\n  ");
 
   const referenceUseEffects = fields
-    .filter(f => f.reference)
-    .map(f => {
+    .filter((f) => f.reference)
+    .map((f) => {
       const refState = getReferenceStateName(f.reference);
-      const refApi = `/api/${f.reference?.toLowerCase()}`;
-      return `
-    axios.get("${refApi}").then(res => set${pascalCase(refState)}(res.data)).catch(console.error);
-      `.trim();
-    }).join("\n  ");
+      const refApi = `http://localhost:5000/api/${f.reference?.toLowerCase()}`;
+      return `axios.get("${refApi}").then(res => set${pascalCase(refState)}(res.data)).catch(console.error);`;
+    })
+    .join("\n    ");
 
   const handleChangeContent = `
   const handleChange = (e: any) => {
@@ -259,44 +269,29 @@ export function generateFrontend(sheetName: string, fields: Field[]) {
       ...prev,
       [name]: type === "checkbox" ? checked : type === "file" ? files?.[0] : value
     }));
-  };
-  `;
+  };`;
 
-  const formFields = fields.map((f) => {
-    const name = f.fieldName;
-    const label = f.label;
-    const required = f.required ? "required" : "";
-    const stateRef = `formData.${name}`;
+  const formFields = fields
+    .map((f) => {
+      const name = f.fieldName;
+      const label = f.label;
+      const required = f.required ? "required" : "";
+      const stateRef = `formData.${name}`;
 
-    if (f.type === "boolean") {
-      return `<FormControlLabel control={<Checkbox name="${name}" checked={${stateRef}} onChange={handleChange} />} label="${label}" />`;
-    }
+      if (f.type === "boolean") {
+        return `<FormControlLabel control={<Checkbox name=\"${name}\" checked={${stateRef}} onChange={handleChange} />} label=\"${label}\" />`;
+      }
 
-    if (f.type === "date") {
-      return `<TextField
-  fullWidth
-  label="${label}"
-  name="${name}"
-  type="date"
-  value={${stateRef}}
-  onChange={handleChange}
-  InputLabelProps={{ shrink: true }}
-  ${required}
-/>`;
-    }
+      if (f.type === "date") {
+        return `<TextField fullWidth label=\"${label}\" name=\"${name}\" type=\"date\" value={${stateRef}} onChange={handleChange} InputLabelProps={{ shrink: true }} ${required} />`;
+      }
 
-    if (f.reference) {
-      const refState = getReferenceStateName(f.reference);
-      const noneOption = f.required ? "" : `<MenuItem value=""><em>None</em></MenuItem>`;
-      return `<FormControl fullWidth>
+      if (f.reference) {
+        const refState = getReferenceStateName(f.reference);
+        const noneOption = f.required ? "" : `<MenuItem value=\"\"><em>None</em></MenuItem>`;
+        return `<FormControl fullWidth>
   <InputLabel>${label}</InputLabel>
-  <Select
-    name="${name}"
-    value={${stateRef}}
-    onChange={handleChange}
-    label="${label}"
-    ${required}
-  >
+  <Select name=\"${name}\" value={${stateRef}} onChange={handleChange} label=\"${label}\" ${required}>
     ${noneOption}
     {Array.isArray(${refState}) && ${refState}.map((option: any) => (
       <MenuItem key={option._id} value={option._id}>
@@ -305,39 +300,41 @@ export function generateFrontend(sheetName: string, fields: Field[]) {
     ))}
   </Select>
 </FormControl>`;
-    }
+      }
 
-    if (f.uiType === "select" && f.options) {
-      const options = f.options.split(",").map(opt =>
-        `<MenuItem value="${opt.trim()}">${opt.trim()}</MenuItem>`).join("\n          ");
-      return `<FormControl fullWidth>
+      if (f.uiType === "select" && f.options) {
+        const options = f.options
+          .split(",")
+          .map((opt) => `<MenuItem value=\"${opt.trim()}\">${opt.trim()}</MenuItem>`) 
+          .join("\n          ");
+        return `<FormControl fullWidth>
   <InputLabel>${label}</InputLabel>
-  <Select name="${name}" value={${stateRef}} onChange={handleChange} label="${label}" ${required}>
+  <Select name=\"${name}\" value={${stateRef}} onChange={handleChange} label=\"${label}\" ${required}>
     ${options}
   </Select>
 </FormControl>`;
-    }
+      }
 
-    if (f.uiType === "file") {
-      return `<Button variant="outlined" component="label">${label}
-  <input type="file" hidden name="${name}" onChange={handleChange} />
-</Button>`;
-    }
+      if (f.uiType === "file") {
+        return `<Button variant=\"outlined\" component=\"label\">${label}<input type=\"file\" hidden name=\"${name}\" onChange={handleChange} /></Button>`;
+      }
 
-    if (f.uiType === "radio") {
-      const radioOptions = f.options?.split(",").map(opt =>
-        `<FormControlLabel value="${opt.trim()}" control={<Radio />} label="${opt.trim()}" />`
-      ).join("\n        ") || "";
-      return `<FormControl>
+      if (f.uiType === "radio") {
+        const radioOptions = f.options
+          ?.split(",")
+          .map((opt) => `<FormControlLabel value=\"${opt.trim()}\" control={<Radio />} label=\"${opt.trim()}\" />`)
+          .join("\n        ") || "";
+        return `<FormControl>
   <label>${label}</label>
-  <RadioGroup row name="${name}" value={${stateRef}} onChange={handleChange}>
+  <RadioGroup row name=\"${name}\" value={${stateRef}} onChange={handleChange}>
     ${radioOptions}
   </RadioGroup>
 </FormControl>`;
-    }
+      }
 
-    return `<TextField fullWidth label="${label}" name="${name}" value={${stateRef}} onChange={handleChange} ${required} />`;
-  }).join("\n      ");
+      return `<TextField fullWidth label=\"${label}\" name=\"${name}\" value={${stateRef}} onChange={handleChange} ${required} />`;
+    })
+    .join("\n      ");
 
   const formCode = `
 import React, { useState } from "react";
@@ -357,9 +354,14 @@ const ${modelName}Form = () => {
 
   ${handleChangeContent}
 
-  const handleSubmit = (e: React.FormEvent<HTMLFormElement>) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    console.log("Submitted:", formData);
+    try {
+      await axios.post("http://localhost:5000/api/${sheetName.toLowerCase()}", formData);
+      alert("Form submitted successfully!");
+    } catch (error) {
+      console.error("Submit failed:", error);
+    }
   };
 
   return (
@@ -376,13 +378,15 @@ export default ${modelName}Form;
   fs.writeFileSync(path.join(componentFolder, `${modelName}Form.tsx`), formCode);
 
   const tableHeaders = fields.map((f) => `<th>${f.label}</th>`).join("\n            ");
-  const tableCells = fields.map((f) => {
-    const fieldName = f.fieldName;
-    if (f.reference) {
-      return `<td>{item.${fieldName} ? (item.${fieldName}.name || item.${fieldName}.title || item.${fieldName}._id) : ""}</td>`;
-    }
-    return `<td>{item.${fieldName}}</td>`;
-  }).join("\n              ");
+  const tableCells = fields
+    .map((f) => {
+      const fieldName = f.fieldName;
+      if (f.reference) {
+        return `<td>{item.${fieldName} ? (item.${fieldName}.name || item.${fieldName}.title || item.${fieldName}._id) : ""}</td>`;
+      }
+      return `<td>{item.${fieldName}}</td>`;
+    })
+    .join("\n              ");
 
   const listCode = `
 import React, { useEffect, useState } from "react";
@@ -392,7 +396,7 @@ const ${modelName}List = () => {
   const [items, setItems] = useState<any[]>([]);
 
   useEffect(() => {
-    axios.get("/api/${sheetName.toLowerCase()}").then(res => setItems(res.data));
+    axios.get("http://localhost:5000/api/${sheetName.toLowerCase()}").then(res => setItems(res.data));
   }, []);
 
   return (
@@ -428,4 +432,5 @@ export default ${modelName}List;
 
   console.log(`✅ Frontend for '${sheetName}' generated at: ${componentFolder}`);
 }
+
 
