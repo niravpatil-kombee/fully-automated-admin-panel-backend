@@ -65,7 +65,7 @@ app.post("/generate", upload.single("file"), async (req, res) => {
 });
 
 mongoose
-  .connect("mongodb://localhost:27017/admin_panel_generator")
+  .connect("mongodb://localhost:27017/admin_panel_generator-6")
   .then(() => console.log("MongoDb Connected successfully"))
   .catch((err) => console.log("Error connecting mongoDB"));
 

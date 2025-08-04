@@ -40,9 +40,6 @@ export function generateFrontend(sheetName: string, fields: Field[]) {
   if (!fs.existsSync(componentFolder)) fs.mkdirSync(componentFolder, { recursive: true });
   else return console.log(`⚠️ Skipped: ${sheetName} already exists.`);
 
-  // =================================================================
-  // YOUR EXISTING FORM GENERATION LOGIC - UNCHANGED AS REQUESTED
-  // =================================================================
   const initialState = fields
     .map((f) => {
       const name = f.fieldName;
@@ -134,6 +131,9 @@ export function generateFrontend(sheetName: string, fields: Field[]) {
     })
     .join("\n      ");
 
+  // =================================================================
+  // THIS IS THE CORRECTED SECTION FOR THE FORM COMPONENT
+  // =================================================================
   const formCode = `
 import React, { useState, useEffect } from "react";
 import axios from "axios";
@@ -147,12 +147,27 @@ const ${modelName}Form = () => {
   ${referenceStatesInit}
 
   useEffect(() => {
+    // This fetches the options for all dropdowns
+    ${referenceUseEffects}
+
+    // This fetches the specific item data when editing
     if (id && id !== 'new') {
       axios.get("http://localhost:5000/api/${sheetName.toLowerCase()}/" + id)
-        .then((res) => setFormData(res.data))
+        .then((res) => {
+          // ** THE FIX IS HERE **
+          // Before setting the form data, we check for populated reference fields (which are objects)
+          // and replace them with just their _id string.
+          const fetchedData = res.data;
+          const flattenedData = { ...fetchedData };
+          Object.keys(flattenedData).forEach(key => {
+            if (flattenedData[key] && typeof flattenedData[key] === 'object' && flattenedData[key]._id) {
+              flattenedData[key] = flattenedData[key]._id;
+            }
+          });
+          setFormData(flattenedData);
+        })
         .catch((err) => console.error("Failed to fetch for edit:", err));
     }
-    ${referenceUseEffects}
   }, [id]);
 
   ${handleChangeContent}
@@ -186,9 +201,8 @@ export default ${modelName}Form;
 `;
 
   fs.writeFileSync(path.join(componentFolder, `${modelName}Form.tsx`), formCode);
-
-  // =================================================================
-  // NEW LIST COMPONENT GENERATION LOGIC - REPLACES THE OLD ONE
+  
+  // The rest of your list generation code remains unchanged...
   // =================================================================
   const tableHeaders = fields
     .map((f) => `<TableCell key="${f.fieldName}" align="left" sx={{ fontWeight: 600 }}>${f.label}</TableCell>`)
