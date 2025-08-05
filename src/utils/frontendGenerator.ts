@@ -1,20 +1,12 @@
-// Imports
+// src/utils/frontendGenerator.ts
+
 import fs from "fs";
 import path from "path";
+import { Field } from "./excelParser"; // Ensure your Field type is exported from excelParser.ts
 
-// Types
-type Field = {
-  label: string;
-  fieldName: string;
-  type: string;
-  required: boolean;
-  uiType: string;
-  options?: string;
-  reference?: string;
-};
-
-// Utilities
-function pascalCase(str: string) {
+// UTILITY FUNCTIONS
+function pascalCase(str: string): string {
+  if (!str) return '';
   return str
     .replace(/[^a-zA-Z0-9]/g, " ")
     .split(" ")
@@ -23,22 +15,30 @@ function pascalCase(str: string) {
 }
 
 function getReferenceStateName(ref: string | undefined): string {
-  if (!ref) {
-    return "";
-  }
+  if (!ref) return "";
   return ref.charAt(0).toLowerCase() + ref.slice(1) + "Options";
 }
 
+
 export function generateFrontend(sheetName: string, fields: Field[]) {
   const modelName = pascalCase(sheetName);
+  const lcEntity = sheetName.toLowerCase().replace(/\s/g, '-');
   const componentFolder = path.resolve(
     __dirname,
     "../../../frontend/src/generated-frontend",
-    sheetName.toLowerCase()
+    lcEntity
   );
 
-  if (!fs.existsSync(componentFolder)) fs.mkdirSync(componentFolder, { recursive: true });
-  else return console.log(`⚠️ Skipped: ${sheetName} already exists.`);
+  if (!fs.existsSync(componentFolder)) {
+    fs.mkdirSync(componentFolder, { recursive: true });
+  } else {
+    console.log(`⏩ Frontend for '${sheetName}' already exists. Skipping.`);
+    return;
+  }
+
+  // =================================================================
+  // PART 1: FORM COMPONENT GENERATION
+  // =================================================================
 
   const initialState = fields
     .map((f) => {
@@ -63,8 +63,8 @@ export function generateFrontend(sheetName: string, fields: Field[]) {
     .filter((f) => f.reference)
     .map((f) => {
       const refState = getReferenceStateName(f.reference);
-      const refApi = `http://localhost:5000/api/${f.reference?.toLowerCase()}`;
-      return `axios.get("${refApi}").then(res => set${pascalCase(refState)}(res.data)).catch(console.error);`;
+      const refApi = `http://localhost:5000/api/${f.reference?.toLowerCase().replace(/\s/g, '-')}`;
+      return `axios.get("${refApi}").then(res => set${pascalCase(refState)}(res.data.data || res.data)).catch(console.error);`;
     })
     .join("\n    ");
 
@@ -85,7 +85,7 @@ export function generateFrontend(sheetName: string, fields: Field[]) {
       const stateRef = `formData.${name}`;
 
       if (f.type === "boolean") {
-        return `<FormControlLabel control={<Checkbox name="${name}" checked={!!${stateRef}} onChange={handleChange} />} label="${label}" />`;
+        return `<FormControlLabel control={<Checkbox name="${name}" checked={!!${stateRef}} onChange={handleChange} />} label="${label}" sx={{ gridColumn: 'span 2' }} />`;
       }
       if (f.type === "date") {
         const dateValue = `formData.${name} ? new Date(formData.${name}).toISOString().split('T')[0] : ''`;
@@ -110,35 +110,35 @@ export function generateFrontend(sheetName: string, fields: Field[]) {
         const options = f.options.split(",").map((opt) => `<MenuItem value="${opt.trim()}">${opt.trim()}</MenuItem>`).join("\n          ");
         return `<FormControl fullWidth>
   <InputLabel>${label}</InputLabel>
-  <Select name="${name}" value={${stateRef}} onChange={handleChange} label="${label}" ${required}>
+  <Select name="${name}" value={${stateRef} || ''} onChange={handleChange} label="${label}" ${required}>
     ${options}
   </Select>
 </FormControl>`;
       }
       if (f.uiType === "file") {
-        return `<Button variant="outlined" component="label">${label}<input type="file" hidden name="${name}" onChange={handleChange} /></Button>`;
+        return `<Box sx={{ gridColumn: 'span 2' }}><Button variant="outlined" component="label">${label}<input type="file" hidden name="${name}" onChange={handleChange} /></Button></Box>`;
       }
       if (f.uiType === "radio") {
         const radioOptions = f.options?.split(",").map((opt) => `<FormControlLabel value="${opt.trim()}" control={<Radio />} label="${opt.trim()}" />`).join("\n        ") || "";
-        return `<FormControl>
-  <label>${label}</label>
-  <RadioGroup row name="${name}" value={${stateRef}} onChange={handleChange}>
+        return `<FormControl sx={{ gridColumn: 'span 2' }}>
+  <FormLabel>${label}</FormLabel>
+  <RadioGroup row name="${name}" value={${stateRef} || ''} onChange={handleChange}>
     ${radioOptions}
   </RadioGroup>
 </FormControl>`;
+      }
+      if (f.type === "textarea") {
+        return `<TextField fullWidth label="${label}" name="${name}" value={${stateRef} || ''} onChange={handleChange} ${required} multiline rows={4} sx={{ gridColumn: 'span 2' }} />`;
       }
       return `<TextField fullWidth label="${label}" name="${name}" value={${stateRef} || ''} onChange={handleChange} ${required} />`;
     })
     .join("\n      ");
 
-  // =================================================================
-  // THIS IS THE CORRECTED SECTION FOR THE FORM COMPONENT
-  // =================================================================
   const formCode = `
 import React, { useState, useEffect } from "react";
 import axios from "axios";
 import { useParams, useNavigate } from "react-router-dom";
-import { TextField, Button, MenuItem, FormControl, InputLabel, Select, Checkbox, FormControlLabel, Radio, RadioGroup, Box } from "@mui/material";
+import { Paper, Typography, TextField, Button, MenuItem, FormControl, InputLabel, Select, Checkbox, FormControlLabel, Radio, RadioGroup, Box, FormLabel } from "@mui/material";
 
 const ${modelName}Form = () => {
   const navigate = useNavigate();
@@ -147,16 +147,13 @@ const ${modelName}Form = () => {
   ${referenceStatesInit}
 
   useEffect(() => {
-    // This fetches the options for all dropdowns
+    // This fetches the options for all reference dropdowns
     ${referenceUseEffects}
 
-    // This fetches the specific item data when editing
+    // This fetches the specific item data for editing
     if (id && id !== 'new') {
-      axios.get("http://localhost:5000/api/${sheetName.toLowerCase()}/" + id)
+      axios.get("http://localhost:5000/api/${lcEntity}/" + id)
         .then((res) => {
-          // ** THE FIX IS HERE **
-          // Before setting the form data, we check for populated reference fields (which are objects)
-          // and replace them with just their _id string.
           const fetchedData = res.data;
           const flattenedData = { ...fetchedData };
           Object.keys(flattenedData).forEach(key => {
@@ -176,25 +173,29 @@ const ${modelName}Form = () => {
     e.preventDefault();
     try {
       if (id && id !== 'new') {
-        await axios.put("http://localhost:5000/api/${sheetName.toLowerCase()}/" + id, formData);
+        await axios.put("http://localhost:5000/api/${lcEntity}/" + id, formData);
         alert("Updated successfully");
       } else {
-        await axios.post("http://localhost:5000/api/${sheetName.toLowerCase()}", formData);
+        await axios.post("http://localhost:5000/api/${lcEntity}", formData);
         alert("Created successfully");
       }
-      navigate("/${sheetName.toLowerCase()}s");
+      navigate("/${lcEntity}s");
     } catch (error) {
       console.error("Submit failed:", error);
+      alert("Operation failed. See console for details.");
     }
   };
 
   return (
-    <Box component="form" onSubmit={handleSubmit} sx={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 2 }}>
-      ${formFields}
-      <Button type="submit" variant="contained" sx={{ mt: 2, gridColumn: 'span 2' }}>
-        {id && id !== 'new' ? "Update" : "Create"}
-      </Button>
-    </Box>
+    <Paper sx={{ p: 3, borderRadius: 3, boxShadow: '0 4px 20px -2px rgba(0,0,0,0.05)' }}>
+      <Typography variant="h5" sx={{ mb: 3 }}>{id && id !== 'new' ? 'Edit ${modelName}' : 'Create New ${modelName}'}</Typography>
+      <Box component="form" onSubmit={handleSubmit} sx={{ display: 'grid', gridTemplateColumns: { sm: '1fr 1fr' }, gap: 2 }}>
+        ${formFields}
+        <Button type="submit" variant="contained" sx={{ mt: 2, gridColumn: { sm: 'span 2' } }}>
+          {id && id !== 'new' ? "Update" : "Create"}
+        </Button>
+      </Box>
+    </Paper>
   );
 };
 export default ${modelName}Form;
@@ -202,7 +203,8 @@ export default ${modelName}Form;
 
   fs.writeFileSync(path.join(componentFolder, `${modelName}Form.tsx`), formCode);
   
-  // The rest of your list generation code remains unchanged...
+  // =================================================================
+  // PART 2: LIST COMPONENT GENERATION (with server-side pagination)
   // =================================================================
   const tableHeaders = fields
     .map((f) => `<TableCell key="${f.fieldName}" align="left" sx={{ fontWeight: 600 }}>${f.label}</TableCell>`)
@@ -220,16 +222,15 @@ export default ${modelName}Form;
       if (f.type === 'date') {
         return `<TableCell>{item.${fieldName} ? new Date(item.${fieldName}).toLocaleDateString() : "N/A"}</TableCell>`;
       }
-      // Truncate long text for display
       return `<TableCell sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.${fieldName}}</TableCell>`;
     })
     .join("\n                  ");
 
   const listCode = `
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useState, useCallback } from "react";
 import { useNavigate } from "react-router-dom";
 import axios from "axios";
-import { Box, Paper, Toolbar, Typography, Table, TableContainer, TableHead, TableBody, TableRow, TableCell, Checkbox, IconButton, Tooltip, TablePagination, Button } from "@mui/material";
+import { Paper, Toolbar, Typography, Table, TableContainer, TableHead, TableBody, TableRow, TableCell, Checkbox, IconButton, Tooltip, TablePagination, Button } from "@mui/material";
 import { Add as AddIcon, Edit as EditIcon, Delete as DeleteIcon, Visibility as VisibilityIcon } from "@mui/icons-material";
 
 const ${modelName}List = () => {
@@ -237,13 +238,22 @@ const ${modelName}List = () => {
   const [selected, setSelected] = useState<string[]>([]);
   const [page, setPage] = useState(0);
   const [rowsPerPage, setRowsPerPage] = useState(10);
+  const [totalItems, setTotalItems] = useState(0);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    axios.get("http://localhost:5000/api/${sheetName.toLowerCase()}")
-      .then(res => setItems(res.data))
+  const fetchItems = useCallback(() => {
+    const apiUrl = \`http://localhost:5000/api/${lcEntity}?page=\${page + 1}&limit=\${rowsPerPage}\`;
+    axios.get(apiUrl)
+      .then(res => {
+        setItems(res.data.data || []);
+        setTotalItems(res.data.total || 0);
+      })
       .catch(err => console.error("Failed to fetch items:", err));
-  }, []);
+  }, [page, rowsPerPage]);
+
+  useEffect(() => {
+    fetchItems();
+  }, [fetchItems]);
 
   const handleSelectAllClick = (event: React.ChangeEvent<HTMLInputElement>) => {
     if (event.target.checked) {
@@ -257,12 +267,10 @@ const ${modelName}List = () => {
   const handleClick = (event: React.MouseEvent<unknown>, id: string) => {
     const selectedIndex = selected.indexOf(id);
     let newSelected: string[] = [];
-
     if (selectedIndex === -1) newSelected = newSelected.concat(selected, id);
     else if (selectedIndex === 0) newSelected = newSelected.concat(selected.slice(1));
     else if (selectedIndex === selected.length - 1) newSelected = newSelected.concat(selected.slice(0, -1));
     else if (selectedIndex > 0) newSelected = newSelected.concat(selected.slice(0, selectedIndex), selected.slice(selectedIndex + 1));
-    
     setSelected(newSelected);
   };
 
@@ -275,20 +283,16 @@ const ${modelName}List = () => {
   const handleDelete = async (id: string) => {
     if (window.confirm("Are you sure? This action cannot be undone.")) {
       try {
-        await axios.delete("http://localhost:5000/api/${sheetName.toLowerCase()}/" + id);
-        setItems(prev => prev.filter(item => item._id !== id));
+        await axios.delete("http://localhost:5000/api/${lcEntity}/" + id);
+        fetchItems();
         setSelected(prev => prev.filter(selId => selId !== id));
-      } catch (err) {
-        alert("Failed to delete item.");
-      }
+      } catch (err) { alert("Failed to delete item."); }
     }
   };
   
-  const handleAddNew = () => navigate("/${sheetName.toLowerCase()}s/new");
-  const handleEdit = (id: string) => navigate(\`/${sheetName.toLowerCase()}s/\${id}/edit\`);
-
+  const handleAddNew = () => navigate("/${lcEntity}s/new");
+  const handleEdit = (id: string) => navigate(\`/${lcEntity}s/\${id}/edit\`);
   const isSelected = (id: string) => selected.indexOf(id) !== -1;
-  const paginatedItems = items.slice(page * rowsPerPage, page * rowsPerPage + rowsPerPage);
 
   return (
     <Paper sx={{ width: '100%', mb: 2, borderRadius: 3, boxShadow: '0 4px 20px -2px rgba(0,0,0,0.05)' }}>
@@ -306,14 +310,14 @@ const ${modelName}List = () => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {paginatedItems.map((item) => {
+            {items.map((item) => {
               const isItemSelected = isSelected(item._id);
               return (
                 <TableRow hover role="checkbox" aria-checked={isItemSelected} tabIndex={-1} key={item._id} selected={isItemSelected} sx={{ cursor: 'pointer' }}>
                   <TableCell padding="checkbox" onClick={(event) => handleClick(event, item._id)}><Checkbox color="primary" checked={isItemSelected} /></TableCell>
                   ${tableCells}
                   <TableCell align="right">
-                    <Tooltip title="View"><IconButton onClick={(e) => { e.stopPropagation(); /* Implement View Logic */ }}><VisibilityIcon fontSize="small" /></IconButton></Tooltip>
+                    <Tooltip title="View"><IconButton onClick={(e) => { e.stopPropagation(); }}><VisibilityIcon fontSize="small" /></IconButton></Tooltip>
                     <Tooltip title="Edit"><IconButton onClick={(e) => { e.stopPropagation(); handleEdit(item._id); }}><EditIcon fontSize="small" /></IconButton></Tooltip>
                     <Tooltip title="Delete"><IconButton onClick={(e) => { e.stopPropagation(); handleDelete(item._id); }} sx={{ color: 'error.main' }}><DeleteIcon fontSize="small" /></IconButton></Tooltip>
                   </TableCell>
@@ -326,7 +330,7 @@ const ${modelName}List = () => {
       <TablePagination
         rowsPerPageOptions={[5, 10, 25]}
         component="div"
-        count={items.length}
+        count={totalItems}
         rowsPerPage={rowsPerPage}
         page={page}
         onPageChange={handleChangePage}
@@ -335,7 +339,6 @@ const ${modelName}List = () => {
     </Paper>
   );
 };
-
 export default ${modelName}List;
 `;
 
