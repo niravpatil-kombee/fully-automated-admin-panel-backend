@@ -115,7 +115,7 @@ app.post("/generate", upload.single("file"), async (req, res) => {
 // ==========================================================
 // SERVER STARTUP LOGIC
 // ==========================================================
-mongoose.connect("mongodb://localhost:27017/admin_panel_generator-12") // Updated your DB name slightly
+mongoose.connect("mongodb://localhost:27017/admin-panel") // Updated your DB name slightly
   .then(() => {
     console.log("✅ MongoDb Connected successfully");
     
